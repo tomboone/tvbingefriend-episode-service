@@ -42,6 +42,9 @@ class EpisodeService:
     def start_get_all_shows_episodes(self) -> str:
         """Start getting all episodes for all shows from the SHOW_IDS_TABLE using batched processing.
         
+        This method initiates the process by creating tracking and queuing the first batch message.
+        The actual work is done asynchronously through queue messages.
+        
         Returns:
             Import ID for tracking progress
         """
@@ -61,8 +64,21 @@ class EpisodeService:
                 estimated_episodes=-1  # Will be updated as batches are processed
             )
             
-            # Start the first batch with smaller batch size for better performance
-            return self._process_shows_batch(import_id=import_id, batch_number=0, batch_size=100)
+            # Queue the first batch processing message instead of doing the work synchronously
+            first_batch_message = {
+                "import_id": import_id,
+                "batch_number": 0,
+                "batch_size": 100,
+                "action": "process_batch"
+            }
+            
+            self.storage_service.upload_queue_message(
+                queue_name=EPISODES_QUEUE,
+                message=first_batch_message
+            )
+            
+            logging.info(f"Queued first batch processing message for import {import_id}")
+            return import_id
             
         except Exception as e:
             logging.error(f"Failed to start episode import: {e}")
@@ -70,13 +86,13 @@ class EpisodeService:
             raise
 
     def _process_shows_batch(self, import_id: str, batch_number: int, batch_size: int = 100, continuation_token: str | None = None) -> str:
-        """Process a batch of shows for episode retrieval using efficient pagination.
+        """Process a batch of shows for episode retrieval using efficient offset-based pagination.
         
         Args:
             import_id: Import operation identifier
             batch_number: Current batch number (0-based)
-            batch_size: Number of shows to process in this batch (reduced to 100 for better performance)
-            continuation_token: Token for paginated queries
+            batch_size: Number of shows to process in this batch
+            continuation_token: Token for paginated queries (unused for now)
             
         Returns:
             Import ID for tracking progress
@@ -84,25 +100,28 @@ class EpisodeService:
         logging.info(f"Processing batch {batch_number} with batch_size {batch_size} for import {import_id}")
         
         try:
-            # Use storage service query method directly for better pagination
+            # Use efficient offset-based pagination from StorageService
             filter_query = "PartitionKey eq 'show'"
+            offset = batch_number * batch_size
             
-            # Get entities using efficient pagination
-            entities = self.storage_service.get_entities(
+            # Get only the entities we need for this batch
+            batch_entities = self.storage_service.get_entities(
                 table_name=SHOW_IDS_TABLE,
-                filter_query=filter_query
+                filter_query=filter_query,
+                offset=offset,
+                limit=batch_size
             )
             
-            if not entities:
-                logging.info(f"No more entities found in batch {batch_number}. Completing import {import_id}")
+            if not batch_entities:
+                logging.info(f"No more entities in batch {batch_number}. Completing import {import_id}")
                 self.monitoring_service.complete_show_episodes_import(import_id, ImportStatus.COMPLETED)
                 return import_id
             
-            logging.info(f"Found {len(entities)} shows in batch {batch_number}")
+            logging.info(f"Processing {len(batch_entities)} shows in batch {batch_number}")
             
             # Queue each show ID in this batch for episode processing
             queued_count = 0
-            for show_entity in entities:
+            for show_entity in batch_entities:
                 row_key = show_entity.get("RowKey")
                 if row_key is None:
                     logging.warning(f"Entity missing RowKey, skipping: {show_entity}")
@@ -127,12 +146,11 @@ class EpisodeService:
             
             logging.info(f"Queued {queued_count} shows from batch {batch_number}")
             
-            # Check if we got a full batch (indicating more data might be available)
-            has_more = len(entities) == batch_size
+            # Check if there might be more batches by seeing if we got a full batch
+            has_more = len(batch_entities) == batch_size
             
             if has_more:
-                # For simplicity, queue the next batch. In a real implementation, you might want
-                # to use continuation tokens or offset-based pagination
+                # Queue the next batch for processing
                 next_batch_message = {
                     "import_id": import_id,
                     "batch_number": batch_number + 1,
