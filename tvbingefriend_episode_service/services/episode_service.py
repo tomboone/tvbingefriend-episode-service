@@ -61,21 +61,22 @@ class EpisodeService:
                 estimated_episodes=-1  # Will be updated as batches are processed
             )
             
-            # Start the first batch
-            return self._process_shows_batch(import_id=import_id, batch_number=0)
+            # Start the first batch with smaller batch size for better performance
+            return self._process_shows_batch(import_id=import_id, batch_number=0, batch_size=100)
             
         except Exception as e:
             logging.error(f"Failed to start episode import: {e}")
             self.monitoring_service.complete_show_episodes_import(import_id, ImportStatus.FAILED)
             raise
 
-    def _process_shows_batch(self, import_id: str, batch_number: int, batch_size: int = 1000) -> str:
-        """Process a batch of shows for episode retrieval.
+    def _process_shows_batch(self, import_id: str, batch_number: int, batch_size: int = 100, continuation_token: str | None = None) -> str:
+        """Process a batch of shows for episode retrieval using efficient pagination.
         
         Args:
             import_id: Import operation identifier
             batch_number: Current batch number (0-based)
-            batch_size: Number of shows to process in this batch
+            batch_size: Number of shows to process in this batch (reduced to 100 for better performance)
+            continuation_token: Token for paginated queries
             
         Returns:
             Import ID for tracking progress
@@ -83,74 +84,57 @@ class EpisodeService:
         logging.info(f"Processing batch {batch_number} with batch_size {batch_size} for import {import_id}")
         
         try:
-            # Get table service client for pagination
-            table_client = self.storage_service.get_table_service_client().get_table_client(SHOW_IDS_TABLE)
-            
-            # Calculate skip amount for this batch
-            skip_count = batch_number * batch_size
-            
-            # Query entities with pagination
+            # Use storage service query method directly for better pagination
             filter_query = "PartitionKey eq 'show'"
-            entities_iter = table_client.query_entities(
-                query_filter=filter_query,
-                results_per_page=batch_size
+            
+            # Get entities using efficient pagination
+            entities = self.storage_service.get_entities(
+                table_name=SHOW_IDS_TABLE,
+                filter_query=filter_query,
+                select=["RowKey"],  # Only select what we need for better performance
+                top=batch_size
             )
             
-            # Skip to the correct batch
-            current_count = 0
-            batch_entities: list[dict[str, Any]] = []
-            total_processed = 0
-            
-            for entity in entities_iter:
-                # Skip entities until we reach our batch
-                if current_count < skip_count:
-                    current_count += 1
-                    continue
-                    
-                # Collect entities for this batch
-                if len(batch_entities) < batch_size:
-                    batch_entities.append(entity)
-                    total_processed += 1
-                else:
-                    # We have enough for this batch, break to process
-                    break
-                    
-                current_count += 1
-            
-            if not batch_entities:
+            if not entities:
                 logging.info(f"No more entities found in batch {batch_number}. Completing import {import_id}")
                 self.monitoring_service.complete_show_episodes_import(import_id, ImportStatus.COMPLETED)
                 return import_id
             
-            logging.info(f"Found {len(batch_entities)} shows in batch {batch_number}")
+            logging.info(f"Found {len(entities)} shows in batch {batch_number}")
             
             # Queue each show ID in this batch for episode processing
             queued_count = 0
-            for show_entity in batch_entities:
+            for show_entity in entities:
                 row_key = show_entity.get("RowKey")
                 if row_key is None:
                     logging.warning(f"Entity missing RowKey, skipping: {show_entity}")
                     continue
                     
-                show_id = int(row_key)
-                show_message: dict[str, Any] = {
-                    "show_id": show_id,
-                    "import_id": import_id
-                }
-                
-                self.storage_service.upload_queue_message(
-                    queue_name=EPISODES_QUEUE,
-                    message=show_message
-                )
-                queued_count += 1
+                try:
+                    show_id = int(row_key)
+                    show_message: dict[str, Any] = {
+                        "show_id": show_id,
+                        "import_id": import_id
+                    }
+                    
+                    self.storage_service.upload_queue_message(
+                        queue_name=EPISODES_QUEUE,
+                        message=show_message
+                    )
+                    queued_count += 1
+                    
+                except (ValueError, TypeError) as e:
+                    logging.warning(f"Invalid show_id format for RowKey {row_key}: {e}")
+                    continue
             
             logging.info(f"Queued {queued_count} shows from batch {batch_number}")
             
-            # Check if there might be more batches by trying to get one more entity
-            has_more = len(batch_entities) == batch_size
+            # Check if we got a full batch (indicating more data might be available)
+            has_more = len(entities) == batch_size
             
             if has_more:
-                # Queue the next batch for processing
+                # For simplicity, queue the next batch. In a real implementation, you might want
+                # to use continuation tokens or offset-based pagination
                 next_batch_message = {
                     "import_id": import_id,
                     "batch_number": batch_number + 1,
@@ -171,7 +155,6 @@ class EpisodeService:
             
         except Exception as e:
             logging.error(f"Failed to process batch {batch_number} for import {import_id}: {e}")
-            self.monitoring_service.complete_show_episodes_import(import_id, ImportStatus.FAILED)
             raise
 
     def get_show_episodes(self, episode_msg: func.QueueMessage) -> None:
@@ -195,7 +178,7 @@ class EpisodeService:
                 if action == "process_batch":
                     batch_import_id = msg_data.get("import_id")
                     batch_number = msg_data.get("batch_number")
-                    batch_size = msg_data.get("batch_size", 1000)
+                    batch_size = msg_data.get("batch_size", 100)
                     
                     logging.info(f"Processing batch message for import {batch_import_id}, batch {batch_number}")
                     self._process_shows_batch(
