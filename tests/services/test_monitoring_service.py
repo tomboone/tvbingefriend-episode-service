@@ -66,7 +66,7 @@ class TestMonitoringService(unittest.TestCase):
         
         # Mock existing entity
         existing_entity = {
-            'PartitionKey': 'season_episodes_import',
+            'PartitionKey': 'show_episodes_import',
             'RowKey': import_id,
             'CompletedEpisodes': 5,
             'FailedEpisodes': 1
@@ -78,7 +78,7 @@ class TestMonitoringService(unittest.TestCase):
         # Verify entity was fetched and updated
         self.mock_storage_service.get_entities.assert_called_once_with(
             table_name="episodeimporttracking",
-            filter_query=f"PartitionKey eq 'season_episodes_import' and RowKey eq '{import_id}'"
+            filter_query=f"PartitionKey eq 'show_episodes_import' and RowKey eq '{import_id}'"
         )
         
         # Verify upsert was called with updated entity
