@@ -46,7 +46,7 @@ class TestConfig(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(_get_setting('MISSING_VAR', required=False, default='default_val'), 'default_val')
 
-    @patch.dict(os.environ, {'INDEX_QUEUE': 'test-episodes-queue'})
+    @patch.dict(os.environ, {'EPISODES_QUEUE': 'test-episodes-queue'})
     def test_episodes_queue_config(self):
         """Test EPISODES_QUEUE configuration loading."""
         # Import after patching to get the patched value
@@ -54,7 +54,6 @@ class TestConfig(unittest.TestCase):
         import tvbingefriend_episode_service.config
         importlib.reload(tvbingefriend_episode_service.config)
         from tvbingefriend_episode_service.config import EPISODES_QUEUE
-        # Note: EPISODES_QUEUE uses INDEX_QUEUE env var as configured
         self.assertEqual(EPISODES_QUEUE, 'test-episodes-queue')
 
     @patch.dict(os.environ, {'SHOW_IDS_TABLE': 'test_show_ids'})
