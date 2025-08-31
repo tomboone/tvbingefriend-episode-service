@@ -138,7 +138,7 @@ class MonitoringService:
         try:
             entities = self.storage_service.get_entities(
                 table_name=self.import_tracking_table,
-                filter_query=f"PartitionKey eq 'season_episodes_import' and RowKey eq '{import_id}'"
+                filter_query=f"PartitionKey eq 'show_episodes_import' and RowKey eq '{import_id}'"
             )
             entity = entities[0] if entities else None
             return dict(entity) if entity else {}
