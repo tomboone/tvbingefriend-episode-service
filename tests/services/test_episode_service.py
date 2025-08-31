@@ -71,9 +71,7 @@ class TestEpisodeService(unittest.TestCase):
         # Verify get_entities was called correctly
         self.service.storage_service.get_entities.assert_called_once_with(
             table_name=SHOW_IDS_TABLE,
-            filter_query="PartitionKey eq 'show'",
-            select=["RowKey"],
-            top=100  # Default batch size
+            filter_query="PartitionKey eq 'show'"
         )
         
         # Verify all shows were queued (3 shows, no next batch since < batch_size)
@@ -232,9 +230,7 @@ class TestEpisodeService(unittest.TestCase):
         # Verify get_entities was called correctly
         self.service.storage_service.get_entities.assert_called_once_with(
             table_name=SHOW_IDS_TABLE,
-            filter_query="PartitionKey eq 'show'",
-            select=["RowKey"],
-            top=batch_size
+            filter_query="PartitionKey eq 'show'"
         )
         
         # Verify shows were queued (2 shows + 1 next batch since batch is full)

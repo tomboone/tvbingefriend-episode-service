@@ -90,9 +90,7 @@ class EpisodeService:
             # Get entities using efficient pagination
             entities = self.storage_service.get_entities(
                 table_name=SHOW_IDS_TABLE,
-                filter_query=filter_query,
-                select=["RowKey"],  # Only select what we need for better performance
-                top=batch_size
+                filter_query=filter_query
             )
             
             if not entities:
