@@ -50,16 +50,6 @@ class TestEpisodeService(unittest.TestCase):
 
     def test_start_get_all_shows_episodes(self):
         """Test starting the process of getting all shows' episodes."""
-        # Mock show entities - 3 entities, less than default batch_size (100)
-        mock_show_entities = [
-            {"RowKey": "1", "PartitionKey": "show"},
-            {"RowKey": "2", "PartitionKey": "show"},
-            {"RowKey": "3", "PartitionKey": "show"}
-        ]
-        
-        # Mock storage_service.get_entities directly  
-        self.service.storage_service.get_entities.return_value = mock_show_entities
-        
         import_id = self.service.start_get_all_shows_episodes()
         
         # Verify import tracking was started
@@ -68,41 +58,40 @@ class TestEpisodeService(unittest.TestCase):
         self.assertEqual(call_args['show_id'], -1)  # Placeholder for bulk operation
         self.assertEqual(call_args['estimated_episodes'], -1)  # Updated for batched processing
         
-        # Verify get_entities was called correctly
-        self.service.storage_service.get_entities.assert_called_once_with(
-            table_name=SHOW_IDS_TABLE,
-            filter_query="PartitionKey eq 'show'"
+        # Verify first batch message was queued (no synchronous work done)
+        self.service.storage_service.upload_queue_message.assert_called_once_with(
+            queue_name=EPISODES_QUEUE,
+            message={
+                "import_id": import_id,
+                "batch_number": 0,
+                "batch_size": 100,
+                "action": "process_batch"
+            }
         )
-        
-        # Verify all shows were queued (3 shows, no next batch since < batch_size)
-        self.assertEqual(self.service.storage_service.upload_queue_message.call_count, 3)
-        expected_calls = [
-            call(queue_name=EPISODES_QUEUE, message={"show_id": 1, "import_id": import_id}),
-            call(queue_name=EPISODES_QUEUE, message={"show_id": 2, "import_id": import_id}),
-            call(queue_name=EPISODES_QUEUE, message={"show_id": 3, "import_id": import_id})
-        ]
-        self.service.storage_service.upload_queue_message.assert_has_calls(expected_calls, any_order=True)
 
     def test_start_get_all_shows_episodes_no_shows(self):
-        """Test starting episodes import when no shows exist."""
-        # Mock empty result from get_entities
-        self.service.storage_service.get_entities.return_value = []
-        
+        """Test starting episodes import - always queues batch message."""
         import_id = self.service.start_get_all_shows_episodes()
         
-        # Should still return import ID but not queue anything
+        # Should return import ID and queue first batch message
         self.assertIsNotNone(import_id)
-        self.service.storage_service.upload_queue_message.assert_not_called()
-        
-        # Should complete import as completed
-        self.service.monitoring_service.complete_show_episodes_import.assert_called_once_with(
-            import_id, ImportStatus.COMPLETED
+        self.service.storage_service.upload_queue_message.assert_called_once_with(
+            queue_name=EPISODES_QUEUE,
+            message={
+                "import_id": import_id,
+                "batch_number": 0,
+                "batch_size": 100,
+                "action": "process_batch"
+            }
         )
+        
+        # Should not complete import here - that happens in batch processing
+        self.service.monitoring_service.complete_show_episodes_import.assert_not_called()
 
     def test_start_get_all_shows_episodes_exception(self):
         """Test exception handling in start_get_all_shows_episodes."""
-        # Mock get_entities to raise exception
-        self.service.storage_service.get_entities.side_effect = Exception("Storage error")
+        # Mock upload_queue_message to raise exception
+        self.service.storage_service.upload_queue_message.side_effect = Exception("Queue error")
         
         with self.assertRaises(Exception):
             self.service.start_get_all_shows_episodes()
@@ -209,12 +198,12 @@ class TestEpisodeService(unittest.TestCase):
             )
 
     def test_process_shows_batch_success(self):
-        """Test successful batch processing."""
+        """Test successful batch processing (partial batch - no more batches)."""
         import_id = "test_import_123"
         batch_number = 0
-        batch_size = 2
+        batch_size = 3  # Request 3 entities
         
-        # Mock show entities
+        # Mock show entities - only return 2, less than batch_size to indicate no more batches
         mock_show_entities = [
             {"RowKey": "1", "PartitionKey": "show"},
             {"RowKey": "2", "PartitionKey": "show"}
@@ -227,14 +216,16 @@ class TestEpisodeService(unittest.TestCase):
         
         self.assertEqual(result, import_id)
         
-        # Verify get_entities was called correctly
+        # Verify get_entities was called correctly with offset and limit
         self.service.storage_service.get_entities.assert_called_once_with(
             table_name=SHOW_IDS_TABLE,
-            filter_query="PartitionKey eq 'show'"
+            filter_query="PartitionKey eq 'show'",
+            offset=0,  # batch_number * batch_size = 0 * 3 = 0
+            limit=batch_size
         )
         
-        # Verify shows were queued (2 shows + 1 next batch since batch is full)
-        self.assertEqual(self.service.storage_service.upload_queue_message.call_count, 3)
+        # Verify shows were queued (2 shows, no next batch since returned entities < batch_size)
+        self.assertEqual(self.service.storage_service.upload_queue_message.call_count, 2)
         expected_calls = [
             call(queue_name=EPISODES_QUEUE, message={"show_id": 1, "import_id": import_id}),
             call(queue_name=EPISODES_QUEUE, message={"show_id": 2, "import_id": import_id})
@@ -247,7 +238,7 @@ class TestEpisodeService(unittest.TestCase):
         batch_number = 0
         batch_size = 1
         
-        # Mock show entities - exactly batch_size, indicating more might exist
+        # Mock show entities - return exactly batch_size to trigger next batch
         mock_show_entities = [
             {"RowKey": "1", "PartitionKey": "show"}
         ]
