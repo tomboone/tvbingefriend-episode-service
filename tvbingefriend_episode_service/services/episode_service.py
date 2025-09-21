@@ -463,3 +463,40 @@ class EpisodeService:
         except Exception as e:
             logging.error(f"EpisodeService.get_episodes_by_season: Error getting episodes for show {show_id}, season {season_number}: {e}")
             return []
+
+    def get_episode_by_id(self, episode_id: int) -> dict[str, Any] | None:
+        """Get an episode by its ID
+
+        Args:
+            episode_id (int): Episode ID
+
+        Returns:
+            dict[str, Any] | None: Episode data if found, None otherwise
+        """
+        try:
+            with db_session_manager() as db:
+                episode = self.episode_repository.get_episode_by_id(episode_id, db)
+
+                if not episode:
+                    return None
+
+                return {
+                    'id': episode.id,
+                    'show_id': episode.show_id,
+                    'url': episode.url,
+                    'name': episode.name,
+                    'season': episode.season,
+                    'number': episode.number,
+                    'type': episode.type,
+                    'airdate': episode.airdate.isoformat() if episode.airdate else None,
+                    'airtime': episode.airtime,
+                    'airstamp': episode.airstamp,
+                    'runtime': episode.runtime,
+                    'rating': episode.rating,
+                    'image': episode.image,
+                    'summary': episode.summary,
+                    '_links': episode._links
+                }
+        except Exception as e:
+            logging.error(f"EpisodeService.get_episode_by_id: Error getting episode {episode_id}: {e}")
+            return None
