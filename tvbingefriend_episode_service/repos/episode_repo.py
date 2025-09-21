@@ -89,3 +89,23 @@ class EpisodeRepository:
         except Exception as e:
             logging.error(f"episode_repository.get_episodes_by_season: Unexpected error getting episodes for show_id {show_id}, season {season_number}: {e}")
             return []
+
+    def get_episode_by_id(self, episode_id: int, db: Session) -> Episode | None:
+        """Get an episode by its ID
+
+        Args:
+            episode_id (int): Episode ID
+            db (Session): Database session
+
+        Returns:
+            Episode | None: Episode if found, None otherwise
+        """
+        try:
+            episode = db.query(Episode).filter(Episode.id == episode_id).first()
+            return episode
+        except SQLAlchemyError as e:
+            logging.error(f"episode_repository.get_episode_by_id: Database error getting episode_id {episode_id}: {e}")
+            return None
+        except Exception as e:
+            logging.error(f"episode_repository.get_episode_by_id: Unexpected error getting episode_id {episode_id}: {e}")
+            return None
