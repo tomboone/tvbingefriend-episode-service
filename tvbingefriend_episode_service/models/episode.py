@@ -1,5 +1,5 @@
 """SQLAlchemy model for an episode."""
-from sqlalchemy import String, Integer, Text, Date
+from sqlalchemy import String, Integer, Text, Date, Index
 from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy.dialects.mysql import JSON
 from datetime import date
@@ -27,3 +27,9 @@ class Episode(Base):
     image: Mapped[dict | None] = mapped_column(JSON)
     summary: Mapped[str | None] = mapped_column(Text)
     _links: Mapped[dict | None] = mapped_column(JSON)
+
+    # Indexes for query optimization
+    __table_args__ = (
+        Index('idx_episodes_show_season_number', 'show_id', 'season', 'number'),
+        Index('idx_episodes_show_id', 'show_id'),
+    )
