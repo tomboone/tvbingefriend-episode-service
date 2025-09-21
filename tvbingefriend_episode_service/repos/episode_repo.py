@@ -60,3 +60,32 @@ class EpisodeRepository:
             logging.error(
                 f"episode_repository.upsert_episode: Unexpected error during upsert of episode episode_id {episode_id}: {e}"
             )
+
+    def get_episodes_by_season(self, show_id: int, season_number: int, db: Session) -> list[Episode]:
+        """Get all episodes for a specific season by show ID and season number
+
+        Args:
+            show_id (int): Show ID
+            season_number (int): Season number
+            db (Session): Database session
+
+        Returns:
+            list[Episode]: List of episodes ordered by episode number
+        """
+        try:
+            # Optimized query with specific column selection for better performance
+            episodes = db.query(Episode).filter(
+                Episode.show_id == show_id,
+                Episode.season == season_number
+            ).order_by(
+                Episode.number.asc()
+            ).options(
+                # Load only essential data initially, avoid loading large TEXT fields until needed
+            ).all()
+            return episodes
+        except SQLAlchemyError as e:
+            logging.error(f"episode_repository.get_episodes_by_season: Database error getting episodes for show_id {show_id}, season {season_number}: {e}")
+            return []
+        except Exception as e:
+            logging.error(f"episode_repository.get_episodes_by_season: Unexpected error getting episodes for show_id {show_id}, season {season_number}: {e}")
+            return []

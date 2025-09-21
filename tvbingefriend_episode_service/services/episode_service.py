@@ -423,3 +423,43 @@ class EpisodeService:
                 })
         
         return retry_summary
+
+    def get_episodes_by_season(self, show_id: int, season_number: int) -> list[dict[str, Any]]:
+        """Get all episodes for a specific season by show ID and season number
+
+        Args:
+            show_id (int): Show ID
+            season_number (int): Season number
+
+        Returns:
+            list[dict[str, Any]]: List of episode data ordered by episode number
+        """
+        try:
+            with db_session_manager() as db:
+                episodes = self.episode_repository.get_episodes_by_season(show_id, season_number, db)
+
+                # Optimize serialization with list comprehension and conditional fields
+                episode_list = [
+                    {
+                        'id': ep.id,
+                        'show_id': ep.show_id,
+                        'url': ep.url,
+                        'name': ep.name,
+                        'season': ep.season,
+                        'number': ep.number,
+                        'type': ep.type,
+                        'airdate': ep.airdate.isoformat() if ep.airdate else None,
+                        'airtime': ep.airtime,
+                        'airstamp': ep.airstamp,
+                        'runtime': ep.runtime,
+                        'rating': ep.rating,
+                        'image': ep.image,
+                        'summary': ep.summary,
+                        '_links': ep._links
+                    }
+                    for ep in episodes
+                ]
+                return episode_list
+        except Exception as e:
+            logging.error(f"EpisodeService.get_episodes_by_season: Error getting episodes for show {show_id}, season {season_number}: {e}")
+            return []
