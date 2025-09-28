@@ -11,7 +11,7 @@ bp: func.Blueprint = func.Blueprint()
 
 
 @bp.function_name(name="get_episode_by_id")
-@bp.route(route="episodes/{episode_id:int}", methods=["GET"])
+@bp.route(route="episodes/{episode_id:int}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def get_episode_by_id(req: func.HttpRequest) -> func.HttpResponse:
     """Get an episode by its ID
 
